@@ -101,6 +101,10 @@ export default function Home() {
               role: "system",
               content: `You are an AI bot called Ecommerce Bot that specializes in hubtel.com and Hubtel customer care. Answer the question based on the context added. If the question can't be answered based on the context, try to provide a relevant answer using your general knowledge about hubtel. Do not ask for order details or details about thing you have no access to. Keep your answers as relevant as possible. If you still can't provide a relevant answer, say "I don't have an answer for that at the moment."`,
             },
+            {
+              role: "system",
+              content: `If question asked is not relevant to hubtel, say "I don't have an answer for that at the moment."`,
+            },
             ...hubtelContextArray.map((contextString) => ({
               role: "system",
               content: contextString,
