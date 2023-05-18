@@ -2,51 +2,57 @@
 
 import React from "react";
 import { useFormik } from "formik";
+const { Configuration, OpenAIApi } = require("openai");
 
+const MAX_TOKENS = 4096;
+const TOKENS_PER_MESSAGE = 50;
 interface Message {
   sender: "user" | "EcommerceBot";
   text: string;
 }
 
-type HubtelInfo = string[];
+interface HubtelInfoItem {
+  prompt: string;
+  response: string;
+}
 
-const hubtelContextArray: HubtelInfo = [
-  "hubtel support phone number: 030 700 0576",
-  "add location or extra item after oder has already been placed: you can not do that. you have to cancel the order and place a new one or call 030 700 0576",
-  "delayed delivery: apologies for delay. rider picking up order and on the way. rider will call when at your location.",
-  "Acknowledged test request. Revert time needed.",
-  "Apologies for wrong order. Investigating and will revert.",
-  "Ordered 60 cedis of pork but received 7 pieces. Investigating and will revert.",
-  "Order processed successfully. Rider will contact for delivery.",
-  "Please cancel my order.",
-  "Apologies for delay. Rider picking up order and on the way.",
-  "Still waiting for delivery.",
-  "Delivery delayed. Rider picking up order and on the way.",
-  "Payment received. Rider picking up order from kitchen.",
-  "Request noted. Thank you.",
-  "Apologies for delay. Rider will call when at your location.",
-  "Apologies for delay. Rider on the way to pick up order.",
-  "Rider on the way to pick up your order. Will call when at your location.",
-  "Order cancellation requested.",
-  "Concerned if order will be delivered today.",
-  "Payment received. Rider on the way to pick up order from the kitchen.",
-  "Apologies for delay. Delivery started, rider will contact you.",
-  "No vegetables requested.",
-  "Inquiring if food will be received today.",
-  "Delivery for order started. Rider will contact you shortly.",
-  "Please call me on 0244225351.",
-  "Additional note: Lots of pepper with the noodles.",
-  "Order delivered. Contact if any concerns.",
-  "Order modification not possible. Add preferences in notes for future orders.",
-  "Strict delivery to chosen location only. Thank you.",
-  "Order processed successfully. Rider will engage upon arrival.",
-  "Order ready for pick up. Rider will call upon arrival.",
-  "Order ready for delivery. Rider will call upon arrival.",
-  "Vaseline Dry Skin Repair 400ml lotion available on app/Web. Place order there.",
-  "Unable to process request for delivered order. Add notes for future orders.",
-  "Placing order assistance available. Let us know how we can help.",
-  "Rider on the way to pick up your order from the kitchen. Will call when at your location.",
+const hubtelContextArray: HubtelInfoItem[] = [
+  {
+    prompt: "What is the Hubtel support phone number?",
+    response: "The Hubtel support phone number is 030 700 0576.",
+  },
+  {
+    prompt:
+      "Can I add location or an extra item after my order has already been placed?",
+    response:
+      "Unfortunately, you can't add a location or an extra item after an order has been placed. You'll need to cancel the order and place a new one, or call our support line at 030 700 0576 for further assistance.",
+  },
+  {
+    prompt: "What happens if my delivery is delayed?",
+    response:
+      "Our sincere apologies for the delay. The rider is currently picking up your order and will be on their way shortly. The rider will call you when they arrive at your location.",
+  },
+  {
+    prompt: "I received the wrong order, what should I do?",
+    response:
+      "Our apologies for the inconvenience caused by the wrong order. We're investigating the issue and will get back to you as soon as possible.",
+  },
+  {
+    prompt:
+      "I ordered 60 cedis of pork but only received 7 pieces. What should I do?",
+    response:
+      "We're sorry for the discrepancy in your order. We're currently investigating the issue and will revert back to you shortly.",
+  },
 ];
+
+const prompt = `
+Translate the following English text to commands:
+"Add bananas to my cart." -> "add:bananas"
+"I want apples." -> "add:apples"
+"Can you add a pineapple to the cart?" -> "add:pineapple"
+"I want to buy a laptop." -> "add:laptop"
+"Please put sugar in my cart." -> "add:sugar"
+`;
 
 const capitalizeFirstLetter = (str: string): string => {
   return str.charAt(0).toUpperCase() + str.slice(1);
@@ -58,7 +64,7 @@ export default function Home() {
   const lastMessageRef = React.useRef<HTMLDivElement | null>(null);
 
   // Custom sampleSize function.
-  function sampleSize(array: HubtelInfo, size: number): HubtelInfo {
+  function sampleSize(array: HubtelInfoItem[], size: number): HubtelInfoItem[] {
     const shuffledArray = array.slice().sort(() => 0.5 - Math.random());
     return shuffledArray.slice(0, size);
   }
@@ -66,9 +72,10 @@ export default function Home() {
   // Combine a number of random elements from the array to form the context string.
   const sampleSizeValue = 5; // Adjust this to control the number of elements used.
   const contextElements = sampleSize(hubtelContextArray, sampleSizeValue);
-  const contextString = contextElements.join("\n");
+  const contextString = contextElements
+    .map((item) => `${item.prompt}\n${item.response}`)
+    .join("\n\n");
 
-  const { Configuration, OpenAIApi } = require("openai");
   const configuration = new Configuration({
     apiKey: process.env.NEXT_PUBLIC_OPENAI_API_KEY,
   });
@@ -92,35 +99,57 @@ export default function Home() {
       setMessages([...messages, { sender: "user", text: userInput }]);
       setIsLoading(true);
 
+      const maxMessages = Math.floor(MAX_TOKENS / TOKENS_PER_MESSAGE);
+
+      const conversation = [
+        {
+          role: "system",
+          content: `You are an AI bot called Ecommerce Bot that specializes in hubtel.com and Hubtel customer care. Answer the question based on the context added. If the question can't be answered based on the context, try to provide a relevant answer using your general knowledge about hubtel. Do not ask for order details or details about thing you have no access to. Keep your answers as relevant as possible. If you still can't provide a relevant answer, say "I don't have an answer for that at the moment."`,
+        },
+        {
+          role: "system",
+          content: `If question asked is not relevant to hubtel, say "I don't have an answer for that at the moment."`,
+        },
+        {
+          role: "system",
+          content: `Sometimes, a user will make a request or issue a command. If the command is in the is similar to -in natural language terms-: ${prompt}, respond with "{item} has been added to your cart.". Otherwise, just generate an answer based on the context.`,
+        },
+        {
+          role: "system",
+          content: contextString,
+        },
+        ...messages
+          .filter((message) => message.sender === "user")
+          .slice(-maxMessages)
+          .map((message) => ({
+            role: "user",
+            content: message.text,
+          })),
+        {
+          role: "user",
+          content: userInput,
+        },
+      ];
+
       // Replace the following code with your AI chatbot code
       try {
         const response = await openai.createChatCompletion({
           model: "gpt-3.5-turbo",
-          messages: [
-            {
-              role: "system",
-              content: `You are an AI bot called Ecommerce Bot that specializes in hubtel.com and Hubtel customer care. Answer the question based on the context added. If the question can't be answered based on the context, try to provide a relevant answer using your general knowledge about hubtel. Do not ask for order details or details about thing you have no access to. Keep your answers as relevant as possible. If you still can't provide a relevant answer, say "I don't have an answer for that at the moment."`,
-            },
-            {
-              role: "system",
-              content: `If question asked is not relevant to hubtel, say "I don't have an answer for that at the moment."`,
-            },
-            ...hubtelContextArray.map((contextString) => ({
-              role: "system",
-              content: contextString,
-            })),
-            {
-              role: "user",
-              content: userInput,
-            },
-          ],
+          messages: conversation,
           max_tokens: 2048,
+          temperature: 0.3,
         });
 
         const aiResponse = response?.data?.choices?.[0]?.message?.content;
         await new Promise((resolve) => setTimeout(resolve, 1000));
         setIsLoading(false);
 
+        const match = aiResponse?.match(/(.*) has been added to your cart/);
+        if (match) {
+          const item = match[1];
+          const command = `add:${item}`;
+          console.log(command);
+        }
         setMessages((prevMessages) => [
           ...prevMessages,
           { sender: "EcommerceBot", text: aiResponse },
