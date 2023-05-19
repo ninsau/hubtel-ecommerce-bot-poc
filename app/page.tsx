@@ -127,15 +127,12 @@ export default function Home() {
         },
         {
           role: "system",
-          content: `YOu now have access to the cart items: ${cart}. Use it to answer complex cart related questions`,
+          content: `You now have access to the cart items: ${cart}. Use it to answer complex cart related questions. Never ever answer by saying you are an ai bot and can't perform actions like add to cart ot cart show cart items.`,
         },
-        ...messages
-          .filter((message) => message.sender === "user")
-          .slice(-maxMessages)
-          .map((message) => ({
-            role: "user",
-            content: message.text,
-          })),
+        ...messages.slice(-maxMessages).map((message) => ({
+          role: message.sender === "user" ? "user" : "system",
+          content: message.text,
+        })),
         {
           role: "user",
           content: userInput,
@@ -157,7 +154,8 @@ export default function Home() {
 
         const actions: Record<string, CartAction> = {
           addToCart: {
-            pattern: /(.*) has been added to your cart/,
+            pattern:
+              /(.*) has been added to your cart|okay. I have added (.*) to your cart.|add:(.*)/,
             action: (item) =>
               item
                 ? setCart((prevCart) => [...prevCart, item as string])
