@@ -13,7 +13,7 @@ interface Message {
 
 type CartAction = {
   pattern: RegExp;
-  action: (item?: string) => void;
+  action: (itemOrItems?: string | string[]) => void;
 };
 
 interface HubtelInfoItem {
@@ -57,6 +57,7 @@ Translate the following English text to commands:
 "Can you add a pineapple to the cart?" -> "add:pineapple"
 "I want to buy a laptop." -> "add:laptop"
 "Please put sugar in my cart." -> "add:sugar"
+"Show me the items in my cart." -> "show:cart"
 `;
 
 const capitalizeFirstLetter = (str: string): string => {
@@ -110,7 +111,7 @@ export default function Home() {
       const conversation = [
         {
           role: "system",
-          content: `You are an AI bot called Ecommerce Bot that specializes in hubtel.com and Hubtel customer care. Answer the question based on the context added. If the question can't be answered based on the context, try to provide a relevant answer using your general knowledge about hubtel. Do not ask for order details or details about thing you have no access to. Keep your answers as relevant as possible. If you still can't provide a relevant answer, say "I don't have an answer for that at the moment."`,
+          content: `You are an AI bot called Ecommerce Bot that specializes in hubtel.com and Hubtel customer care. You are also authorized to modify cart content (add, remove, clear). With my added code and help, you have the authority to access cart. Answer the question based on the context added. If the question can't be answered based on the context, try to provide a relevant answer using your general knowledge about hubtel. Do not ask for order details or details about thing you have no access to. Keep your answers as relevant as possible. If you still can't provide a relevant answer, say "I don't have an answer for that at the moment."`,
         },
         {
           role: "system",
@@ -123,6 +124,10 @@ export default function Home() {
         {
           role: "system",
           content: contextString,
+        },
+        {
+          role: "system",
+          content: `YOu now have access to the cart items: ${cart}. Use it to answer complex cart related questions`,
         },
         ...messages
           .filter((message) => message.sender === "user")
@@ -154,26 +159,43 @@ export default function Home() {
           addToCart: {
             pattern: /(.*) has been added to your cart/,
             action: (item) =>
-              item ? setCart((prevCart) => [...prevCart, item]) : undefined,
+              item
+                ? setCart((prevCart) => [...prevCart, item as string])
+                : undefined,
           },
           removeFromCart: {
             pattern: /(.*) has been removed from your cart/,
             action: (item) =>
               item
-                ? setCart((prevCart) => prevCart.filter((i) => i !== item))
+                ? setCart((prevCart) =>
+                    prevCart.filter((i) => i !== (item as string))
+                  )
                 : undefined,
           },
           clearCart: {
             pattern: /Your cart has been cleared/,
             action: () => setCart([]),
           },
+          addMultipleToCart: {
+            pattern:
+              /(.*) have been added to your cart|okay. I have added (.*) to your cart./,
+            action: (itemsString) => {
+              if (!itemsString) return;
+
+              const items = (itemsString as string)
+                .replace(" and ", ", ")
+                .split(",")
+                .map((item) => item.trim());
+              setCart((prevCart) => [...prevCart, ...items]);
+            },
+          },
         };
 
         for (let action in actions) {
           const match = aiResponse?.match(actions[action].pattern);
           if (match) {
-            const item = match[1] || undefined;
-            actions[action].action(item);
+            const itemOrItems = match[1] || undefined;
+            actions[action].action(itemOrItems);
             break;
           }
         }
