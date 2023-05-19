@@ -11,6 +11,11 @@ interface Message {
   text: string;
 }
 
+type CartAction = {
+  pattern: RegExp;
+  action: (item?: string) => void;
+};
+
 interface HubtelInfoItem {
   prompt: string;
   response: string;
@@ -62,6 +67,7 @@ export default function Home() {
   const [messages, setMessages] = React.useState<Message[]>([]);
   const [isLoading, setIsLoading] = React.useState<boolean>(false);
   const lastMessageRef = React.useRef<HTMLDivElement | null>(null);
+  const [cart, setCart] = React.useState<string[]>([]);
 
   // Custom sampleSize function.
   function sampleSize(array: HubtelInfoItem[], size: number): HubtelInfoItem[] {
@@ -144,12 +150,34 @@ export default function Home() {
         await new Promise((resolve) => setTimeout(resolve, 1000));
         setIsLoading(false);
 
-        const match = aiResponse?.match(/(.*) has been added to your cart/);
-        if (match) {
-          const item = match[1];
-          const command = `add:${item}`;
-          console.log(command);
+        const actions: Record<string, CartAction> = {
+          addToCart: {
+            pattern: /(.*) has been added to your cart/,
+            action: (item) =>
+              item ? setCart((prevCart) => [...prevCart, item]) : undefined,
+          },
+          removeFromCart: {
+            pattern: /(.*) has been removed from your cart/,
+            action: (item) =>
+              item
+                ? setCart((prevCart) => prevCart.filter((i) => i !== item))
+                : undefined,
+          },
+          clearCart: {
+            pattern: /Your cart has been cleared/,
+            action: () => setCart([]),
+          },
+        };
+
+        for (let action in actions) {
+          const match = aiResponse?.match(actions[action].pattern);
+          if (match) {
+            const item = match[1] || undefined;
+            actions[action].action(item);
+            break;
+          }
         }
+
         setMessages((prevMessages) => [
           ...prevMessages,
           { sender: "EcommerceBot", text: aiResponse },
@@ -168,8 +196,22 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-gray-100 flex flex-col justify-center">
+      <div className="flex flex-col items-center justify-center py-12">
+        <h1 className="font-bold">Cart: {cart.length}</h1>
+        <div className="flex flex-row flex-wrap overflow-x-auto py-2 space-x-4">
+          {cart.map((item, index) => (
+            <div
+              key={index}
+              className="flex-none w-48 p-2 bg-gray-100 rounded-lg shadow-md"
+            >
+              <p>{item}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
       <div className="bg-white w-full max-w-2xl mx-auto p-6 rounded-lg shadow-md">
-        <h1 className="text-2xl font-bold mb-6">ECommerce Bot</h1>
+        <h2 className="text-2xl font-bold mb-6">ECommerce Bot</h2>
         <div className="h-80 bg-gray-200 p-4 mb-4 rounded-lg overflow-y-auto">
           {messages.length === 0 && (
             <div className="text-center text-gray-500">
